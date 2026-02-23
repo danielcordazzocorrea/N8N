@@ -12,14 +12,15 @@ Este workflow automatiza a extração de dados de transações **Pix** (recebido
   - Nome do remetente/destinatário.
   - Data e hora formatadas para o padrão ISO.
 - **Persistência de Dados**: Salva tudo em uma tabela no Supabase.
-
+-**Modelo de E-mail**: Automação configurada conforme o modelo de e-mail mandado pelo banco XP.
 ## 🛠️ Pré-requisitos
 
 Para rodar este fluxo, você precisará de:
 1. Uma instância do [n8n](https://n8n.io) instalada.
 2. Credenciais de [Gmail OAuth2](https://docs.n8n.io) configuradas no Google Cloud Console.
 3. Um projeto no [Supabase](https://supabase.com) com uma tabela chamada `pix_transactions`.
-4. Uma conta no Banco XP
+4. Uma conta em um banco que mande e-mal por pix enviado/recebido
+5. Mude o workflow conforme o modelo de e-mail que o seu banco mandar
 
 ### Estrutura da Tabela no Supabase
 Certifique-se de que sua tabela `pix_transactions` possua as seguintes colunas:
@@ -35,7 +36,7 @@ Certifique-se de que sua tabela `pix_transactions` possua as seguintes colunas:
 2. No seu n8n, clique em **Workflows** > **Import from File**.
 3. Selecione o arquivo baixado.
 4. Configure suas credenciais do Gmail e do Supabase nos nós correspondentes.
-5. No nó de inserção do Supabase, substitua o campo `[Coloque seu nome]` pelo seu nome real para identificar suas transações.
+5. No nó de inserção do Supabase, substitua o campo `[Coloque seu nome]` pelo seu nome real para identificar suas transaçõese mude .
 
 ## ⚠️ Segurança e Privacidade
 

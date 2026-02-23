@@ -111,7 +111,7 @@
             },
             {
               "fieldId": "transaction_date",
-              "fieldValue": "={{\n  (() => {\n    const matchData = ($json[\"snippet\"].match(/\\d{2}\\/\\d{2}\\/\\d{2}/) || [])[0];\n    const matchHora = ($json[\"snippet\"].match(/\\d{2}h\\d{2}/) || [])[0];\n    if (!matchData) return null;\n\n    const [dia, mes, ano] = matchData.split(\"/\");\n    let horaFormatada = \"00:00:00\";\n\n    if (matchHora) {\n      const [hora, minuto] = matchHora.replace(\"h\", \":\").split(\":\");\n      horaFormatada = `${hora}:${minuto}:00`;\n    }\n\n    return `20${ano}-${mes}-${dia}T${horaFormatada}`;\n  })()\n}}\n"
+              "fieldValue": "={{\n  (() => {\n    const texto = ($json[\"snippet\"] || \"\").trim();\n\n    const matchData = texto.match(/\\d{2}\\/\\d{2}\\/\\d{2}/);\n    const matchHora = texto.match(/\\d{2}h\\d{2}/);\n\n    if (!matchData) return $now;\n\n    const [dia, mes, ano] = matchData[0].split(\"/\");\n\n    let hora = \"00\";\n    let minuto = \"00\";\n\n    if (matchHora) {\n      [hora, minuto] = matchHora[0].replace(\"h\", \":\").split(\":\");\n    }\n\n    return `20${ano}-${mes}-${dia}T${hora}:${minuto}:00Z`;\n  })()\n}}\n"
             }
           ]
         }
@@ -153,7 +153,7 @@
             },
             {
               "fieldId": "transaction_date",
-              "fieldValue": "={{\n  (() => {\n    const matchData = ($json[\"snippet\"].match(/\\d{2}\\/\\d{2}\\/\\d{2}/) || [])[0];\n    const matchHora = ($json[\"snippet\"].match(/\\d{2}h\\d{2}/) || [])[0];\n    if (!matchData) return null;\n\n    const [dia, mes, ano] = matchData.split(\"/\");\n    let horaFormatada = \"00:00:00\";\n\n    if (matchHora) {\n      const [hora, minuto] = matchHora.replace(\"h\", \":\").split(\":\");\n      horaFormatada = `${hora}:${minuto}:00`;\n    }\n\n    return `20${ano}-${mes}-${dia}T${horaFormatada}`;\n  })()\n}}\n"
+              "fieldValue": "={{\n  (() => {\n    const texto = ($json[\"snippet\"] || \"\").trim();\n\n    const matchData = texto.match(/\\d{2}\\/\\d{2}\\/\\d{2}/);\n    const matchHora = texto.match(/\\d{2}h\\d{2}/);\n\n    if (!matchData) return $now;\n\n    const [dia, mes, ano] = matchData[0].split(\"/\");\n\n    let hora = \"00\";\n    let minuto = \"00\";\n\n    if (matchHora) {\n      [hora, minuto] = matchHora[0].replace(\"h\", \":\").split(\":\");\n    }\n\n    return `20${ano}-${mes}-${dia}T${hora}:${minuto}:00Z`;\n  })()\n}}\n"
             }
           ]
         }
