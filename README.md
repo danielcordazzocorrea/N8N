@@ -19,6 +19,7 @@ Para rodar este fluxo, você precisará de:
 1. Uma instância do [n8n](https://n8n.io) instalada.
 2. Credenciais de [Gmail OAuth2](https://docs.n8n.io) configuradas no Google Cloud Console.
 3. Um projeto no [Supabase](https://supabase.com) com uma tabela chamada `pix_transactions`.
+4. Uma conta no Banco XP
 
 ### Estrutura da Tabela no Supabase
 Certifique-se de que sua tabela `pix_transactions` possua as seguintes colunas:
