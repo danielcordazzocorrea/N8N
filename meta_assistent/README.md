@@ -1,6 +1,8 @@
 # 🤖 Assistente de IA Omnichannel de Elite (RAG + Redis + Whisper)
 
-Este repositório contém um workflow avançado do **n8n** projetado para transformar o **Chatwoot (instância auto-hospedada)** em uma central de atendimento inteligente e autônoma, utilizando a **API oficial da META (WhatsApp Cloud API)**. 
+Esta pasta contém um workflow avançado do **n8n** projetado para transformar o **Chatwoot (instância auto-hospedada)** em uma central de atendimento inteligente e autônoma, utilizando a **API oficial da META (WhatsApp Cloud API)**.
+
+O workflow faz parte do projeto [Chatflow Insights — Whats·Ops](https://github.com/danielcordazzocorrea/chatflow-insights) e também é utilizado no [site Chatflow Insights](https://chatflow-insights.vercel.app/).
 
 O sistema resolve desafios complexos de automação, como o processamento de mensagens duplicadas, transcrição de áudio e a manutenção de contexto em conversas de longa duração.
 

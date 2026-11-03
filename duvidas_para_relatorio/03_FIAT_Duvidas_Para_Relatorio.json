@@ -1,0 +1,122 @@
+{
+  "name": "FIAT | Dúvidas da turma → Relatório",
+  "nodes": [
+    {
+      "id": "6f34083f680580285af2354b85d54aaa",
+      "name": "Receber dúvidas",
+      "type": "n8n-nodes-base.formTrigger",
+      "parameters": {
+        "formTitle": "FIAT — Dúvidas da turma",
+        "formDescription": "Use uma dúvida por linha, no formato assunto | dúvida. O assunto é informado pela pessoa. Este fluxo agrupa por regra e não usa IA.",
+        "formFields": {
+          "values": [
+            {
+              "fieldName": "duvidas",
+              "fieldLabel": "Dúvidas com assunto",
+              "fieldType": "textarea",
+              "requiredField": true,
+              "placeholder": "Frações | Como somar denominadores diferentes?\nFrações | Quando posso simplificar?\nEquações | Como isolar a incógnita?"
+            }
+          ]
+        },
+        "responseMode": "lastNode",
+        "options": {
+          "path": "fiat-duvidas-relatorio",
+          "buttonLabel": "Processar pedido",
+          "useWorkflowTimezone": true
+        }
+      },
+      "position": [
+        0,
+        240
+      ],
+      "typeVersion": 2.4,
+      "webhookId": "f679c565116d7a19d7ae719688286925"
+    },
+    {
+      "id": "575b5a2aa49e513709040db5ddaf9afd",
+      "name": "Organizar e agrupar dúvidas",
+      "type": "n8n-nodes-base.code",
+      "parameters": {
+        "jsCode": "function relatorio(texto) {\n  const esc=v=>String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));\n  const linhas=String(texto??'').split(/\\r?\\n/).filter(x=>x.trim());\n  const grupos=new Map(); const invalidas=[];\n  linhas.forEach((linha,i)=>{\n    const k=linha.indexOf('|'); const assunto=linha.slice(0,k).trim(); const duvida=linha.slice(k+1).trim();\n    if(k<1||!assunto||!duvida){invalidas.push(i+1);return;}\n    const chave=assunto.normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase();\n    if(!grupos.has(chave))grupos.set(chave,{assunto,duvidas:[]});\n    grupos.get(chave).duvidas.push(duvida);\n  });\n  const assuntos=[...grupos.values()].sort((a,b)=>b.duvidas.length-a.duvidas.length||a.assunto.localeCompare(b.assunto,'pt-BR'));\n  const total=assuntos.reduce((n,g)=>n+g.duvidas.length,0);\n  const mensagem=invalidas.length?`Revise as linhas ${invalidas.join(', ')}: use assunto | dúvida. O relatório está parcial.`:total?'Relatório pronto para o professor revisar.':'Nenhuma dúvida válida recebida.';\n  const html=`<!doctype html><html lang=\"pt-BR\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>FIAT — Relatório de dúvidas</title><style>body{font:18px/1.6 system-ui;background:#f3f6fa;color:#162c43;padding:28px}main{max-width:900px;margin:auto}section{background:white;border:1px solid #d7e1eb;padding:20px;border-radius:14px;margin:18px 0}h1{line-height:1.2}small{color:#526476}</style></head><body><main><small>FIAT · DA INFORMAÇÃO AO MATERIAL DE APOIO</small><h1>O que revisar com a turma?</h1><p>${total} ${total === 1 ? 'dúvida' : 'dúvidas'} · ${assuntos.length} ${assuntos.length === 1 ? 'assunto' : 'assuntos'} · ${invalidas.length} ${invalidas.length === 1 ? 'linha' : 'linhas'} a corrigir</p><p>${esc(mensagem)}</p>${assuntos.map(g=>`<section><h2>${esc(g.assunto)} — ${g.duvidas.length} ${g.duvidas.length === 1 ? 'dúvida' : 'dúvidas'}</h2><ul>${g.duvidas.map(d=>`<li>${esc(d)}</li>`).join('')}</ul><p><strong>Pauta sugerida:</strong> revisar este assunto e selecionar um exemplo que ajude a discutir as dúvidas acima.</p></section>`).join('')}<p><small>A contagem mede dúvidas recebidas, não dificuldade, domínio ou quantidade de alunos. Os assuntos foram informados na entrada; não houve classificação por IA.</small></p></main></body></html>`;\n  return {total_duvidas:total,assuntos,linhas_invalidas:invalidas,parcial:invalidas.length>0,html};\n}\n\nreturn $input.all().map((x,i)=>({json:relatorio(x.json.duvidas),pairedItem:{item:i}}));",
+        "mode": "runOnceForAllItems"
+      },
+      "position": [
+        280,
+        240
+      ],
+      "typeVersion": 2
+    },
+    {
+      "id": "74a180099076905cebf8545d81372c6f",
+      "name": "Mostrar relatório",
+      "type": "n8n-nodes-base.form",
+      "parameters": {
+        "operation": "completion",
+        "respondWith": "showText",
+        "responseText": "={{ $json.html }}",
+        "options": {}
+      },
+      "position": [
+        560,
+        240
+      ],
+      "typeVersion": 2.4,
+      "webhookId": "26be1d996285fd6048b9569dd2d53606"
+    },
+    {
+      "id": "3a53685ef2cfafc14cc2904e4e991752",
+      "name": "A conexão com ensino",
+      "type": "n8n-nodes-base.stickyNote",
+      "parameters": {
+        "content": "## O que mudou?\nEntrada: dúvidas com assunto.\nTransformação: agrupar e contar.\nSaída: relatório e pauta para revisão.\n\nOs assuntos vêm da entrada. O fluxo não identifica causas pedagógicas nem avalia aprendizagem.",
+        "height": 210,
+        "width": 480,
+        "color": 5
+      },
+      "position": [
+        0,
+        -140
+      ],
+      "typeVersion": 1
+    }
+  ],
+  "connections": {
+    "Receber dúvidas": {
+      "main": [
+        [
+          {
+            "node": "Organizar e agrupar dúvidas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Organizar e agrupar dúvidas": {
+      "main": [
+        [
+          {
+            "node": "Mostrar relatório",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "executionTimeout": 120
+  },
+  "active": false,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

@@ -1,0 +1,450 @@
+{
+  "name": "FIAT | Agência | Sem API",
+  "nodes": [
+    {
+      "id": "5529d75ceb93cd570afe71ddb280df30",
+      "name": "Receber dados",
+      "type": "n8n-nodes-base.formTrigger",
+      "parameters": {
+        "formTitle": "FIAT — Pedido de viagem",
+        "formDescription": "Demonstração com dados fictícios, apenas para adultos. Nesta versão você informa os campos; não há interpretação por IA. Deixe campos vazios para testar pendências.",
+        "formFields": {
+          "values": [
+            {
+              "fieldName": "origem",
+              "fieldLabel": "Cidade de origem",
+              "fieldType": "text",
+              "requiredField": false,
+              "placeholder": "São Paulo"
+            },
+            {
+              "fieldName": "destino",
+              "fieldLabel": "Destino",
+              "fieldType": "text",
+              "requiredField": false,
+              "placeholder": "Buenos Aires"
+            },
+            {
+              "fieldName": "data_ida",
+              "fieldLabel": "Ida",
+              "fieldType": "date",
+              "requiredField": false
+            },
+            {
+              "fieldName": "data_volta",
+              "fieldLabel": "Volta",
+              "fieldType": "date",
+              "requiredField": false
+            },
+            {
+              "fieldName": "adultos",
+              "fieldLabel": "Quantidade de adultos",
+              "fieldType": "number",
+              "requiredField": false,
+              "placeholder": "2"
+            },
+            {
+              "fieldName": "orcamento_valor",
+              "fieldLabel": "Orçamento em reais (apenas número)",
+              "fieldType": "number",
+              "requiredField": false,
+              "placeholder": "6000"
+            },
+            {
+              "fieldName": "orcamento_tipo",
+              "fieldLabel": "Este orçamento é...",
+              "fieldType": "dropdown",
+              "requiredField": false,
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Total da viagem"
+                  },
+                  {
+                    "option": "Por pessoa"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "responseMode": "lastNode",
+        "options": {
+          "path": "fiat-agencia-sem-api",
+          "buttonLabel": "Processar pedido",
+          "useWorkflowTimezone": true
+        }
+      },
+      "position": [
+        0,
+        240
+      ],
+      "typeVersion": 2.4,
+      "webhookId": "a156df6caa5c11a19779bb81c57500ab"
+    },
+    {
+      "id": "99f32cee1bcdb75749ed0a195e8aac68",
+      "name": "Organizar campos",
+      "type": "n8n-nodes-base.code",
+      "parameters": {
+        "jsCode": "return $input.all().map((item,i)=>({json:{...item.json,moeda:'BRL',criancas:0,orcamento_tipo:({'Total da viagem':'total','Por pessoa':'por_pessoa'})[item.json.orcamento_tipo]||item.json.orcamento_tipo,modo:'campos preenchidos pela pessoa — sem IA'},pairedItem:{item:i}}));",
+        "mode": "runOnceForAllItems"
+      },
+      "position": [
+        220,
+        240
+      ],
+      "typeVersion": 2
+    },
+    {
+      "id": "81466540d6621e2dd3ab3a7fce7bac58",
+      "name": "Conferir os dados",
+      "type": "n8n-nodes-base.code",
+      "parameters": {
+        "jsCode": "// Lógica compartilhada pelos workflows. Sem serviços externos ou segredos.\nfunction texto(v) { return typeof v === 'string' ? v.trim() : ''; }\nfunction chave(v) { return texto(v).normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/\\s+/g, ' '); }\nfunction cidade(v) { const x = chave(v); return ({sp:'sao paulo','são paulo':'sao paulo'})[x] || x; }\nfunction numero(v) {\n  if (typeof v === 'number') return Number.isFinite(v) ? v : null;\n  if (typeof v !== 'string' || !v.trim()) return null;\n  const s = v.trim();\n  // Formulários e schema usam número; não adivinhar separadores monetários.\n  if (!/^-?\\d+(?:\\.\\d+)?$/.test(s)) return null;\n  const n = Number(s); return Number.isFinite(n) ? n : null;\n}\nfunction dataISO(v) {\n  const s = texto(v); const br = s.match(/^(\\d{2})\\/(\\d{2})\\/(\\d{4})$/);\n  const iso = br ? `${br[3]}-${br[2]}-${br[1]}` : s;\n  const m = iso.match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);\n  if (!m || Number(m[1]) < 2000 || Number(m[1]) > 2100) return null;\n  const d = new Date(`${iso}T12:00:00Z`);\n  return Number.isFinite(d.getTime()) && d.toISOString().slice(0,10) === iso ? iso : null;\n}\nfunction validar(entrada) {\n  const x = entrada.dados ?? entrada; const pendencias = [];\n  const dados = {\n    origem: texto(x.origem) || null, destino: texto(x.destino) || null,\n    data_ida: dataISO(x.data_ida), data_volta: dataISO(x.data_volta),\n    adultos: numero(x.adultos), criancas: x.criancas == null || x.criancas === '' ? 0 : numero(x.criancas),\n    orcamento_valor: numero(x.orcamento_valor), orcamento_tipo: texto(x.orcamento_tipo),\n    moeda: texto(x.moeda).toUpperCase(), ambiguidades: Array.isArray(x.ambiguidades) ? x.ambiguidades.filter(v=>typeof v==='string'&&v.trim()) : []\n  };\n  if (!dados.origem) pendencias.push('cidade de origem');\n  if (!dados.destino) pendencias.push('destino');\n  if (!dados.data_ida) pendencias.push('data de ida válida, com ano');\n  if (!dados.data_volta) pendencias.push('data de volta válida, com ano');\n  if (dados.data_ida && dados.data_volta && dados.data_volta <= dados.data_ida) pendencias.push('data de volta posterior à ida');\n  if (!Number.isInteger(dados.adultos) || dados.adultos < 1 || dados.adultos > 20) pendencias.push('quantidade de adultos entre 1 e 20');\n  if (!Number.isInteger(dados.criancas) || dados.criancas < 0 || dados.criancas > 20) pendencias.push('quantidade de crianças válida');\n  if (dados.criancas > 0) pendencias.push('avaliação de um atendente para viagens com crianças, fora deste catálogo de demonstração');\n  if (!(dados.orcamento_valor > 0)) pendencias.push('orçamento positivo em número');\n  if (!['total','por_pessoa'].includes(dados.orcamento_tipo)) pendencias.push('se o orçamento é total ou por pessoa');\n  if (dados.moeda !== 'BRL') pendencias.push('orçamento em reais (BRL), moeda deste catálogo');\n  if (dados.ambiguidades.length) pendencias.push(...dados.ambiguidades.map(a=>'esclarecimento: '+a));\n  const completo = pendencias.length === 0;\n  const orcamento_total = completo ? dados.orcamento_valor * (dados.orcamento_tipo === 'por_pessoa' ? dados.adultos : 1) : null;\n  return {mensagem_original: texto(entrada.mensagem_original),modo:entrada.modo||'campos informados',dados,pendencias:[...new Set(pendencias)],completo,orcamento_total};\n}\nfunction buscarOpcoes(item, catalogo) {\n  if (!item.completo) throw new Error('A consulta exige dados completos e válidos.');\n  if (!Array.isArray(catalogo)) throw new Error('Catálogo inválido: esperado um array.');\n  const comparacao = catalogo.map(o => {\n    const motivos = [];\n    if (cidade(o.origem) !== cidade(item.dados.origem)) motivos.push('origem diferente');\n    if (cidade(o.destino) !== cidade(item.dados.destino)) motivos.push('destino diferente');\n    if (o.data_ida !== item.dados.data_ida || o.data_volta !== item.dados.data_volta) motivos.push('datas diferentes');\n    if (o.adultos !== item.dados.adultos || (o.criancas || 0) !== item.dados.criancas) motivos.push('viajantes diferentes');\n    if (o.moeda !== 'BRL') motivos.push('moeda diferente');\n    if (!Number.isFinite(o.valor_total) || o.valor_total <= 0) motivos.push('valor inválido no catálogo');\n    else if (o.valor_total > item.orcamento_total) motivos.push('acima do orçamento');\n    return {...o,compativel:motivos.length===0,motivos};\n  });\n  return {...item,comparacao,opcoes:comparacao.filter(o=>o.compativel),catalogo_ficticio:true};\n}\nfunction moedaBR(v) { return Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }\nfunction dataBR(v) { return v ? v.split('-').reverse().join('/') : 'não informada'; }\nfunction preparar(item, tipo) {\n  let status, rascunho;\n  if (tipo === 'complemento') {\n    status = 'precisa_complemento';\n    rascunho = 'Olá! Para consultar as opções, preciso confirmar: ' + item.pendencias.join('; ') + '. Você pode me informar?';\n  } else if (tipo === 'opcoes') {\n    if (!item.opcoes?.length) throw new Error('Não há opção para compor esta resposta.');\n    status = 'opcao_encontrada';\n    const lista = item.opcoes.map(o=>`${o.id}: ${o.origem} → ${o.destino}, de ${dataBR(o.data_ida)} a ${dataBR(o.data_volta)}, ${o.adultos} adultos, valor total fictício ${moedaBR(o.valor_total)}.`).join('\\n');\n    rascunho = 'Olá! No catálogo de demonstração, encontrei:\\n' + lista + '\\n\\nEstes dados são fictícios para a atividade. Esta resposta não confirma disponibilidade real nem reserva.';\n  } else if (tipo === 'sem_opcoes') {\n    status = 'sem_opcao_compativel';\n    rascunho = 'Olá! Não encontrei opção que atenda a todas as condições no catálogo de demonstração. Deixei o pedido sinalizado para revisão de um atendente. Você aceita rever datas, destino ou orçamento?';\n  } else throw new Error('Tipo de resposta desconhecido.');\n  return {...item,status,rascunho,envio_automatico:false,revisao_necessaria:true};\n}\nfunction escapar(v) { return String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c])); }\nfunction apresentar(item, execucao) {\n  const titulos={opcao_encontrada:'Opção encontrada',precisa_complemento:'Precisamos completar o pedido',sem_opcao_compativel:'Pedido para revisão da equipe'};\n  const d=item.dados; const e=escapar;\n  const linhas=[['Origem',d.origem],['Destino',d.destino],['Ida',dataBR(d.data_ida)],['Volta',dataBR(d.data_volta)],['Adultos',d.adultos],['Orçamento informado',d.orcamento_valor==null?'não informado':moedaBR(d.orcamento_valor)+' ('+d.orcamento_tipo+')'],['Orçamento total validado',item.orcamento_total==null?'aguardando dados':moedaBR(item.orcamento_total)]];\n  const tabela=linhas.map(([k,v])=>`<tr><th>${e(k)}</th><td>${e(v??'não informado')}</td></tr>`).join('');\n  const comparacao=(item.comparacao??[]).map(o=>`<tr><td>${e(o.id)}</td><td>${e(moedaBR(o.valor_total))}</td><td>${e(o.compativel?'Compatível':o.motivos.join('; '))}</td></tr>`).join('');\n  const html=`<!doctype html><html lang=\"pt-BR\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>FIAT — ${e(titulos[item.status])}</title><style>body{font:17px/1.5 system-ui,sans-serif;background:#f3f6fa;color:#162c43;margin:0;padding:28px}main{max-width:920px;margin:auto}h1{font-size:32px;line-height:1.2}h2{font-size:22px}section{background:white;border:1px solid #d7e1eb;border-radius:14px;padding:24px;margin:18px 0}.tag{color:#146b5f;font-weight:700}table{border-collapse:collapse;width:100%;font-size:16px}td,th{text-align:left;border-bottom:1px solid #e4e9ef;padding:10px}pre{white-space:pre-wrap;font:17px/1.6 system-ui}small{color:#526476}.notice{border-left:5px solid #cf8b22;padding:12px 16px;background:#fff7e5}</style></head><body><main><span class=\"tag\">FIAT · DEMONSTRAÇÃO DE AUTOMAÇÃO</span><h1>${e(titulos[item.status])}</h1><p class=\"notice\">Catálogo e pedidos fictícios. Rascunho para revisão; nenhuma mensagem foi enviada.</p><section><h2>O pedido virou dados</h2><p><small>Origem dos campos: ${e(item.modo)}</small></p><table>${tabela}</table></section>${comparacao?`<section><h2>O que a consulta encontrou</h2><table><tr><th>Opção fictícia</th><th>Total</th><th>Resultado da regra</th></tr>${comparacao}</table></section>`:''}<section><h2>Resposta preparada</h2><pre>${e(item.rascunho)}</pre></section><p><small>Execução ${e(execucao??'local')}. O histórico do n8n guarda os dados desta demonstração; ele não substitui um cadastro de clientes.</small></p></main></body></html>`;\n  return {...item,execucao_id:String(execucao??'local'),html};\n}\n\nreturn $input.all().map((x,i)=>({json:validar(x.json),pairedItem:{item:i}}));",
+        "mode": "runOnceForAllItems"
+      },
+      "position": [
+        440,
+        240
+      ],
+      "typeVersion": 2
+    },
+    {
+      "id": "77eedaa143f349647e75c19cd9cf7cd5",
+      "name": "Dados suficientes?",
+      "type": "n8n-nodes-base.if",
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ce7e9ab948c8a5d53c1598f34817c9f5",
+              "leftValue": "={{ $json.completo }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        680,
+        240
+      ],
+      "typeVersion": 2.2
+    },
+    {
+      "id": "6474315b4c297b3ff700c8cbb3c9d8e2",
+      "name": "Catálogo fictício - 3 opções",
+      "type": "n8n-nodes-base.code",
+      "parameters": {
+        "jsCode": "const catalogo=[{\"id\":\"DEMO-01\",\"origem\":\"São Paulo\",\"destino\":\"Buenos Aires\",\"data_ida\":\"2026-11-15\",\"data_volta\":\"2026-11-19\",\"adultos\":2,\"criancas\":0,\"moeda\":\"BRL\",\"valor_total\":5200},{\"id\":\"DEMO-02\",\"origem\":\"São Paulo\",\"destino\":\"Buenos Aires\",\"data_ida\":\"2026-11-15\",\"data_volta\":\"2026-11-19\",\"adultos\":2,\"criancas\":0,\"moeda\":\"BRL\",\"valor_total\":6800},{\"id\":\"DEMO-03\",\"origem\":\"São Paulo\",\"destino\":\"Santiago\",\"data_ida\":\"2026-11-15\",\"data_volta\":\"2026-11-19\",\"adultos\":2,\"criancas\":0,\"moeda\":\"BRL\",\"valor_total\":5700}];\nreturn $input.all().map((x,i)=>({json:{...x.json,catalogo},pairedItem:{item:i}}));",
+        "mode": "runOnceForAllItems"
+      },
+      "position": [
+        920,
+        100
+      ],
+      "typeVersion": 2
+    },
+    {
+      "id": "0853acab35d2822d1a2641aa30aba30d",
+      "name": "Comparar as condições",
+      "type": "n8n-nodes-base.code",
+      "parameters": {
+        "jsCode": "// Lógica compartilhada pelos workflows. Sem serviços externos ou segredos.\nfunction texto(v) { return typeof v === 'string' ? v.trim() : ''; }\nfunction chave(v) { return texto(v).normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/\\s+/g, ' '); }\nfunction cidade(v) { const x = chave(v); return ({sp:'sao paulo','são paulo':'sao paulo'})[x] || x; }\nfunction numero(v) {\n  if (typeof v === 'number') return Number.isFinite(v) ? v : null;\n  if (typeof v !== 'string' || !v.trim()) return null;\n  const s = v.trim();\n  // Formulários e schema usam número; não adivinhar separadores monetários.\n  if (!/^-?\\d+(?:\\.\\d+)?$/.test(s)) return null;\n  const n = Number(s); return Number.isFinite(n) ? n : null;\n}\nfunction dataISO(v) {\n  const s = texto(v); const br = s.match(/^(\\d{2})\\/(\\d{2})\\/(\\d{4})$/);\n  const iso = br ? `${br[3]}-${br[2]}-${br[1]}` : s;\n  const m = iso.match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);\n  if (!m || Number(m[1]) < 2000 || Number(m[1]) > 2100) return null;\n  const d = new Date(`${iso}T12:00:00Z`);\n  return Number.isFinite(d.getTime()) && d.toISOString().slice(0,10) === iso ? iso : null;\n}\nfunction validar(entrada) {\n  const x = entrada.dados ?? entrada; const pendencias = [];\n  const dados = {\n    origem: texto(x.origem) || null, destino: texto(x.destino) || null,\n    data_ida: dataISO(x.data_ida), data_volta: dataISO(x.data_volta),\n    adultos: numero(x.adultos), criancas: x.criancas == null || x.criancas === '' ? 0 : numero(x.criancas),\n    orcamento_valor: numero(x.orcamento_valor), orcamento_tipo: texto(x.orcamento_tipo),\n    moeda: texto(x.moeda).toUpperCase(), ambiguidades: Array.isArray(x.ambiguidades) ? x.ambiguidades.filter(v=>typeof v==='string'&&v.trim()) : []\n  };\n  if (!dados.origem) pendencias.push('cidade de origem');\n  if (!dados.destino) pendencias.push('destino');\n  if (!dados.data_ida) pendencias.push('data de ida válida, com ano');\n  if (!dados.data_volta) pendencias.push('data de volta válida, com ano');\n  if (dados.data_ida && dados.data_volta && dados.data_volta <= dados.data_ida) pendencias.push('data de volta posterior à ida');\n  if (!Number.isInteger(dados.adultos) || dados.adultos < 1 || dados.adultos > 20) pendencias.push('quantidade de adultos entre 1 e 20');\n  if (!Number.isInteger(dados.criancas) || dados.criancas < 0 || dados.criancas > 20) pendencias.push('quantidade de crianças válida');\n  if (dados.criancas > 0) pendencias.push('avaliação de um atendente para viagens com crianças, fora deste catálogo de demonstração');\n  if (!(dados.orcamento_valor > 0)) pendencias.push('orçamento positivo em número');\n  if (!['total','por_pessoa'].includes(dados.orcamento_tipo)) pendencias.push('se o orçamento é total ou por pessoa');\n  if (dados.moeda !== 'BRL') pendencias.push('orçamento em reais (BRL), moeda deste catálogo');\n  if (dados.ambiguidades.length) pendencias.push(...dados.ambiguidades.map(a=>'esclarecimento: '+a));\n  const completo = pendencias.length === 0;\n  const orcamento_total = completo ? dados.orcamento_valor * (dados.orcamento_tipo === 'por_pessoa' ? dados.adultos : 1) : null;\n  return {mensagem_original: texto(entrada.mensagem_original),modo:entrada.modo||'campos informados',dados,pendencias:[...new Set(pendencias)],completo,orcamento_total};\n}\nfunction buscarOpcoes(item, catalogo) {\n  if (!item.completo) throw new Error('A consulta exige dados completos e válidos.');\n  if (!Array.isArray(catalogo)) throw new Error('Catálogo inválido: esperado um array.');\n  const comparacao = catalogo.map(o => {\n    const motivos = [];\n    if (cidade(o.origem) !== cidade(item.dados.origem)) motivos.push('origem diferente');\n    if (cidade(o.destino) !== cidade(item.dados.destino)) motivos.push('destino diferente');\n    if (o.data_ida !== item.dados.data_ida || o.data_volta !== item.dados.data_volta) motivos.push('datas diferentes');\n    if (o.adultos !== item.dados.adultos || (o.criancas || 0) !== item.dados.criancas) motivos.push('viajantes diferentes');\n    if (o.moeda !== 'BRL') motivos.push('moeda diferente');\n    if (!Number.isFinite(o.valor_total) || o.valor_total <= 0) motivos.push('valor inválido no catálogo');\n    else if (o.valor_total > item.orcamento_total) motivos.push('acima do orçamento');\n    return {...o,compativel:motivos.length===0,motivos};\n  });\n  return {...item,comparacao,opcoes:comparacao.filter(o=>o.compativel),catalogo_ficticio:true};\n}\nfunction moedaBR(v) { return Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }\nfunction dataBR(v) { return v ? v.split('-').reverse().join('/') : 'não informada'; }\nfunction preparar(item, tipo) {\n  let status, rascunho;\n  if (tipo === 'complemento') {\n    status = 'precisa_complemento';\n    rascunho = 'Olá! Para consultar as opções, preciso confirmar: ' + item.pendencias.join('; ') + '. Você pode me informar?';\n  } else if (tipo === 'opcoes') {\n    if (!item.opcoes?.length) throw new Error('Não há opção para compor esta resposta.');\n    status = 'opcao_encontrada';\n    const lista = item.opcoes.map(o=>`${o.id}: ${o.origem} → ${o.destino}, de ${dataBR(o.data_ida)} a ${dataBR(o.data_volta)}, ${o.adultos} adultos, valor total fictício ${moedaBR(o.valor_total)}.`).join('\\n');\n    rascunho = 'Olá! No catálogo de demonstração, encontrei:\\n' + lista + '\\n\\nEstes dados são fictícios para a atividade. Esta resposta não confirma disponibilidade real nem reserva.';\n  } else if (tipo === 'sem_opcoes') {\n    status = 'sem_opcao_compativel';\n    rascunho = 'Olá! Não encontrei opção que atenda a todas as condições no catálogo de demonstração. Deixei o pedido sinalizado para revisão de um atendente. Você aceita rever datas, destino ou orçamento?';\n  } else throw new Error('Tipo de resposta desconhecido.');\n  return {...item,status,rascunho,envio_automatico:false,revisao_necessaria:true};\n}\nfunction escapar(v) { return String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c])); }\nfunction apresentar(item, execucao) {\n  const titulos={opcao_encontrada:'Opção encontrada',precisa_complemento:'Precisamos completar o pedido',sem_opcao_compativel:'Pedido para revisão da equipe'};\n  const d=item.dados; const e=escapar;\n  const linhas=[['Origem',d.origem],['Destino',d.destino],['Ida',dataBR(d.data_ida)],['Volta',dataBR(d.data_volta)],['Adultos',d.adultos],['Orçamento informado',d.orcamento_valor==null?'não informado':moedaBR(d.orcamento_valor)+' ('+d.orcamento_tipo+')'],['Orçamento total validado',item.orcamento_total==null?'aguardando dados':moedaBR(item.orcamento_total)]];\n  const tabela=linhas.map(([k,v])=>`<tr><th>${e(k)}</th><td>${e(v??'não informado')}</td></tr>`).join('');\n  const comparacao=(item.comparacao??[]).map(o=>`<tr><td>${e(o.id)}</td><td>${e(moedaBR(o.valor_total))}</td><td>${e(o.compativel?'Compatível':o.motivos.join('; '))}</td></tr>`).join('');\n  const html=`<!doctype html><html lang=\"pt-BR\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>FIAT — ${e(titulos[item.status])}</title><style>body{font:17px/1.5 system-ui,sans-serif;background:#f3f6fa;color:#162c43;margin:0;padding:28px}main{max-width:920px;margin:auto}h1{font-size:32px;line-height:1.2}h2{font-size:22px}section{background:white;border:1px solid #d7e1eb;border-radius:14px;padding:24px;margin:18px 0}.tag{color:#146b5f;font-weight:700}table{border-collapse:collapse;width:100%;font-size:16px}td,th{text-align:left;border-bottom:1px solid #e4e9ef;padding:10px}pre{white-space:pre-wrap;font:17px/1.6 system-ui}small{color:#526476}.notice{border-left:5px solid #cf8b22;padding:12px 16px;background:#fff7e5}</style></head><body><main><span class=\"tag\">FIAT · DEMONSTRAÇÃO DE AUTOMAÇÃO</span><h1>${e(titulos[item.status])}</h1><p class=\"notice\">Catálogo e pedidos fictícios. Rascunho para revisão; nenhuma mensagem foi enviada.</p><section><h2>O pedido virou dados</h2><p><small>Origem dos campos: ${e(item.modo)}</small></p><table>${tabela}</table></section>${comparacao?`<section><h2>O que a consulta encontrou</h2><table><tr><th>Opção fictícia</th><th>Total</th><th>Resultado da regra</th></tr>${comparacao}</table></section>`:''}<section><h2>Resposta preparada</h2><pre>${e(item.rascunho)}</pre></section><p><small>Execução ${e(execucao??'local')}. O histórico do n8n guarda os dados desta demonstração; ele não substitui um cadastro de clientes.</small></p></main></body></html>`;\n  return {...item,execucao_id:String(execucao??'local'),html};\n}\n\nreturn $input.all().map((x,i)=>({json:buscarOpcoes(x.json,x.json.catalogo),pairedItem:{item:i}}));",
+        "mode": "runOnceForAllItems"
+      },
+      "position": [
+        1160,
+        100
+      ],
+      "typeVersion": 2
+    },
+    {
+      "id": "d2f74e9ca2490fd34e06998a82884925",
+      "name": "Encontrou opção?",
+      "type": "n8n-nodes-base.if",
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "247853b1ca5d3132d0f6a01de1e4b601",
+              "leftValue": "={{ $json.opcoes.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1400,
+        100
+      ],
+      "typeVersion": 2.2
+    },
+    {
+      "id": "382ecb0fc0b644f38d19e864fc3773c0",
+      "name": "Preparar opção encontrada",
+      "type": "n8n-nodes-base.code",
+      "parameters": {
+        "jsCode": "// Lógica compartilhada pelos workflows. Sem serviços externos ou segredos.\nfunction texto(v) { return typeof v === 'string' ? v.trim() : ''; }\nfunction chave(v) { return texto(v).normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/\\s+/g, ' '); }\nfunction cidade(v) { const x = chave(v); return ({sp:'sao paulo','são paulo':'sao paulo'})[x] || x; }\nfunction numero(v) {\n  if (typeof v === 'number') return Number.isFinite(v) ? v : null;\n  if (typeof v !== 'string' || !v.trim()) return null;\n  const s = v.trim();\n  // Formulários e schema usam número; não adivinhar separadores monetários.\n  if (!/^-?\\d+(?:\\.\\d+)?$/.test(s)) return null;\n  const n = Number(s); return Number.isFinite(n) ? n : null;\n}\nfunction dataISO(v) {\n  const s = texto(v); const br = s.match(/^(\\d{2})\\/(\\d{2})\\/(\\d{4})$/);\n  const iso = br ? `${br[3]}-${br[2]}-${br[1]}` : s;\n  const m = iso.match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);\n  if (!m || Number(m[1]) < 2000 || Number(m[1]) > 2100) return null;\n  const d = new Date(`${iso}T12:00:00Z`);\n  return Number.isFinite(d.getTime()) && d.toISOString().slice(0,10) === iso ? iso : null;\n}\nfunction validar(entrada) {\n  const x = entrada.dados ?? entrada; const pendencias = [];\n  const dados = {\n    origem: texto(x.origem) || null, destino: texto(x.destino) || null,\n    data_ida: dataISO(x.data_ida), data_volta: dataISO(x.data_volta),\n    adultos: numero(x.adultos), criancas: x.criancas == null || x.criancas === '' ? 0 : numero(x.criancas),\n    orcamento_valor: numero(x.orcamento_valor), orcamento_tipo: texto(x.orcamento_tipo),\n    moeda: texto(x.moeda).toUpperCase(), ambiguidades: Array.isArray(x.ambiguidades) ? x.ambiguidades.filter(v=>typeof v==='string'&&v.trim()) : []\n  };\n  if (!dados.origem) pendencias.push('cidade de origem');\n  if (!dados.destino) pendencias.push('destino');\n  if (!dados.data_ida) pendencias.push('data de ida válida, com ano');\n  if (!dados.data_volta) pendencias.push('data de volta válida, com ano');\n  if (dados.data_ida && dados.data_volta && dados.data_volta <= dados.data_ida) pendencias.push('data de volta posterior à ida');\n  if (!Number.isInteger(dados.adultos) || dados.adultos < 1 || dados.adultos > 20) pendencias.push('quantidade de adultos entre 1 e 20');\n  if (!Number.isInteger(dados.criancas) || dados.criancas < 0 || dados.criancas > 20) pendencias.push('quantidade de crianças válida');\n  if (dados.criancas > 0) pendencias.push('avaliação de um atendente para viagens com crianças, fora deste catálogo de demonstração');\n  if (!(dados.orcamento_valor > 0)) pendencias.push('orçamento positivo em número');\n  if (!['total','por_pessoa'].includes(dados.orcamento_tipo)) pendencias.push('se o orçamento é total ou por pessoa');\n  if (dados.moeda !== 'BRL') pendencias.push('orçamento em reais (BRL), moeda deste catálogo');\n  if (dados.ambiguidades.length) pendencias.push(...dados.ambiguidades.map(a=>'esclarecimento: '+a));\n  const completo = pendencias.length === 0;\n  const orcamento_total = completo ? dados.orcamento_valor * (dados.orcamento_tipo === 'por_pessoa' ? dados.adultos : 1) : null;\n  return {mensagem_original: texto(entrada.mensagem_original),modo:entrada.modo||'campos informados',dados,pendencias:[...new Set(pendencias)],completo,orcamento_total};\n}\nfunction buscarOpcoes(item, catalogo) {\n  if (!item.completo) throw new Error('A consulta exige dados completos e válidos.');\n  if (!Array.isArray(catalogo)) throw new Error('Catálogo inválido: esperado um array.');\n  const comparacao = catalogo.map(o => {\n    const motivos = [];\n    if (cidade(o.origem) !== cidade(item.dados.origem)) motivos.push('origem diferente');\n    if (cidade(o.destino) !== cidade(item.dados.destino)) motivos.push('destino diferente');\n    if (o.data_ida !== item.dados.data_ida || o.data_volta !== item.dados.data_volta) motivos.push('datas diferentes');\n    if (o.adultos !== item.dados.adultos || (o.criancas || 0) !== item.dados.criancas) motivos.push('viajantes diferentes');\n    if (o.moeda !== 'BRL') motivos.push('moeda diferente');\n    if (!Number.isFinite(o.valor_total) || o.valor_total <= 0) motivos.push('valor inválido no catálogo');\n    else if (o.valor_total > item.orcamento_total) motivos.push('acima do orçamento');\n    return {...o,compativel:motivos.length===0,motivos};\n  });\n  return {...item,comparacao,opcoes:comparacao.filter(o=>o.compativel),catalogo_ficticio:true};\n}\nfunction moedaBR(v) { return Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }\nfunction dataBR(v) { return v ? v.split('-').reverse().join('/') : 'não informada'; }\nfunction preparar(item, tipo) {\n  let status, rascunho;\n  if (tipo === 'complemento') {\n    status = 'precisa_complemento';\n    rascunho = 'Olá! Para consultar as opções, preciso confirmar: ' + item.pendencias.join('; ') + '. Você pode me informar?';\n  } else if (tipo === 'opcoes') {\n    if (!item.opcoes?.length) throw new Error('Não há opção para compor esta resposta.');\n    status = 'opcao_encontrada';\n    const lista = item.opcoes.map(o=>`${o.id}: ${o.origem} → ${o.destino}, de ${dataBR(o.data_ida)} a ${dataBR(o.data_volta)}, ${o.adultos} adultos, valor total fictício ${moedaBR(o.valor_total)}.`).join('\\n');\n    rascunho = 'Olá! No catálogo de demonstração, encontrei:\\n' + lista + '\\n\\nEstes dados são fictícios para a atividade. Esta resposta não confirma disponibilidade real nem reserva.';\n  } else if (tipo === 'sem_opcoes') {\n    status = 'sem_opcao_compativel';\n    rascunho = 'Olá! Não encontrei opção que atenda a todas as condições no catálogo de demonstração. Deixei o pedido sinalizado para revisão de um atendente. Você aceita rever datas, destino ou orçamento?';\n  } else throw new Error('Tipo de resposta desconhecido.');\n  return {...item,status,rascunho,envio_automatico:false,revisao_necessaria:true};\n}\nfunction escapar(v) { return String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c])); }\nfunction apresentar(item, execucao) {\n  const titulos={opcao_encontrada:'Opção encontrada',precisa_complemento:'Precisamos completar o pedido',sem_opcao_compativel:'Pedido para revisão da equipe'};\n  const d=item.dados; const e=escapar;\n  const linhas=[['Origem',d.origem],['Destino',d.destino],['Ida',dataBR(d.data_ida)],['Volta',dataBR(d.data_volta)],['Adultos',d.adultos],['Orçamento informado',d.orcamento_valor==null?'não informado':moedaBR(d.orcamento_valor)+' ('+d.orcamento_tipo+')'],['Orçamento total validado',item.orcamento_total==null?'aguardando dados':moedaBR(item.orcamento_total)]];\n  const tabela=linhas.map(([k,v])=>`<tr><th>${e(k)}</th><td>${e(v??'não informado')}</td></tr>`).join('');\n  const comparacao=(item.comparacao??[]).map(o=>`<tr><td>${e(o.id)}</td><td>${e(moedaBR(o.valor_total))}</td><td>${e(o.compativel?'Compatível':o.motivos.join('; '))}</td></tr>`).join('');\n  const html=`<!doctype html><html lang=\"pt-BR\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>FIAT — ${e(titulos[item.status])}</title><style>body{font:17px/1.5 system-ui,sans-serif;background:#f3f6fa;color:#162c43;margin:0;padding:28px}main{max-width:920px;margin:auto}h1{font-size:32px;line-height:1.2}h2{font-size:22px}section{background:white;border:1px solid #d7e1eb;border-radius:14px;padding:24px;margin:18px 0}.tag{color:#146b5f;font-weight:700}table{border-collapse:collapse;width:100%;font-size:16px}td,th{text-align:left;border-bottom:1px solid #e4e9ef;padding:10px}pre{white-space:pre-wrap;font:17px/1.6 system-ui}small{color:#526476}.notice{border-left:5px solid #cf8b22;padding:12px 16px;background:#fff7e5}</style></head><body><main><span class=\"tag\">FIAT · DEMONSTRAÇÃO DE AUTOMAÇÃO</span><h1>${e(titulos[item.status])}</h1><p class=\"notice\">Catálogo e pedidos fictícios. Rascunho para revisão; nenhuma mensagem foi enviada.</p><section><h2>O pedido virou dados</h2><p><small>Origem dos campos: ${e(item.modo)}</small></p><table>${tabela}</table></section>${comparacao?`<section><h2>O que a consulta encontrou</h2><table><tr><th>Opção fictícia</th><th>Total</th><th>Resultado da regra</th></tr>${comparacao}</table></section>`:''}<section><h2>Resposta preparada</h2><pre>${e(item.rascunho)}</pre></section><p><small>Execução ${e(execucao??'local')}. O histórico do n8n guarda os dados desta demonstração; ele não substitui um cadastro de clientes.</small></p></main></body></html>`;\n  return {...item,execucao_id:String(execucao??'local'),html};\n}\n\nreturn $input.all().map((x,i)=>({json:preparar(x.json,'opcoes'),pairedItem:{item:i}}));",
+        "mode": "runOnceForAllItems"
+      },
+      "position": [
+        1640,
+        -20
+      ],
+      "typeVersion": 2
+    },
+    {
+      "id": "1b397a5a1fa5f1e1800d71567e64ec9d",
+      "name": "Preparar encaminhamento",
+      "type": "n8n-nodes-base.code",
+      "parameters": {
+        "jsCode": "// Lógica compartilhada pelos workflows. Sem serviços externos ou segredos.\nfunction texto(v) { return typeof v === 'string' ? v.trim() : ''; }\nfunction chave(v) { return texto(v).normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/\\s+/g, ' '); }\nfunction cidade(v) { const x = chave(v); return ({sp:'sao paulo','são paulo':'sao paulo'})[x] || x; }\nfunction numero(v) {\n  if (typeof v === 'number') return Number.isFinite(v) ? v : null;\n  if (typeof v !== 'string' || !v.trim()) return null;\n  const s = v.trim();\n  // Formulários e schema usam número; não adivinhar separadores monetários.\n  if (!/^-?\\d+(?:\\.\\d+)?$/.test(s)) return null;\n  const n = Number(s); return Number.isFinite(n) ? n : null;\n}\nfunction dataISO(v) {\n  const s = texto(v); const br = s.match(/^(\\d{2})\\/(\\d{2})\\/(\\d{4})$/);\n  const iso = br ? `${br[3]}-${br[2]}-${br[1]}` : s;\n  const m = iso.match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);\n  if (!m || Number(m[1]) < 2000 || Number(m[1]) > 2100) return null;\n  const d = new Date(`${iso}T12:00:00Z`);\n  return Number.isFinite(d.getTime()) && d.toISOString().slice(0,10) === iso ? iso : null;\n}\nfunction validar(entrada) {\n  const x = entrada.dados ?? entrada; const pendencias = [];\n  const dados = {\n    origem: texto(x.origem) || null, destino: texto(x.destino) || null,\n    data_ida: dataISO(x.data_ida), data_volta: dataISO(x.data_volta),\n    adultos: numero(x.adultos), criancas: x.criancas == null || x.criancas === '' ? 0 : numero(x.criancas),\n    orcamento_valor: numero(x.orcamento_valor), orcamento_tipo: texto(x.orcamento_tipo),\n    moeda: texto(x.moeda).toUpperCase(), ambiguidades: Array.isArray(x.ambiguidades) ? x.ambiguidades.filter(v=>typeof v==='string'&&v.trim()) : []\n  };\n  if (!dados.origem) pendencias.push('cidade de origem');\n  if (!dados.destino) pendencias.push('destino');\n  if (!dados.data_ida) pendencias.push('data de ida válida, com ano');\n  if (!dados.data_volta) pendencias.push('data de volta válida, com ano');\n  if (dados.data_ida && dados.data_volta && dados.data_volta <= dados.data_ida) pendencias.push('data de volta posterior à ida');\n  if (!Number.isInteger(dados.adultos) || dados.adultos < 1 || dados.adultos > 20) pendencias.push('quantidade de adultos entre 1 e 20');\n  if (!Number.isInteger(dados.criancas) || dados.criancas < 0 || dados.criancas > 20) pendencias.push('quantidade de crianças válida');\n  if (dados.criancas > 0) pendencias.push('avaliação de um atendente para viagens com crianças, fora deste catálogo de demonstração');\n  if (!(dados.orcamento_valor > 0)) pendencias.push('orçamento positivo em número');\n  if (!['total','por_pessoa'].includes(dados.orcamento_tipo)) pendencias.push('se o orçamento é total ou por pessoa');\n  if (dados.moeda !== 'BRL') pendencias.push('orçamento em reais (BRL), moeda deste catálogo');\n  if (dados.ambiguidades.length) pendencias.push(...dados.ambiguidades.map(a=>'esclarecimento: '+a));\n  const completo = pendencias.length === 0;\n  const orcamento_total = completo ? dados.orcamento_valor * (dados.orcamento_tipo === 'por_pessoa' ? dados.adultos : 1) : null;\n  return {mensagem_original: texto(entrada.mensagem_original),modo:entrada.modo||'campos informados',dados,pendencias:[...new Set(pendencias)],completo,orcamento_total};\n}\nfunction buscarOpcoes(item, catalogo) {\n  if (!item.completo) throw new Error('A consulta exige dados completos e válidos.');\n  if (!Array.isArray(catalogo)) throw new Error('Catálogo inválido: esperado um array.');\n  const comparacao = catalogo.map(o => {\n    const motivos = [];\n    if (cidade(o.origem) !== cidade(item.dados.origem)) motivos.push('origem diferente');\n    if (cidade(o.destino) !== cidade(item.dados.destino)) motivos.push('destino diferente');\n    if (o.data_ida !== item.dados.data_ida || o.data_volta !== item.dados.data_volta) motivos.push('datas diferentes');\n    if (o.adultos !== item.dados.adultos || (o.criancas || 0) !== item.dados.criancas) motivos.push('viajantes diferentes');\n    if (o.moeda !== 'BRL') motivos.push('moeda diferente');\n    if (!Number.isFinite(o.valor_total) || o.valor_total <= 0) motivos.push('valor inválido no catálogo');\n    else if (o.valor_total > item.orcamento_total) motivos.push('acima do orçamento');\n    return {...o,compativel:motivos.length===0,motivos};\n  });\n  return {...item,comparacao,opcoes:comparacao.filter(o=>o.compativel),catalogo_ficticio:true};\n}\nfunction moedaBR(v) { return Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }\nfunction dataBR(v) { return v ? v.split('-').reverse().join('/') : 'não informada'; }\nfunction preparar(item, tipo) {\n  let status, rascunho;\n  if (tipo === 'complemento') {\n    status = 'precisa_complemento';\n    rascunho = 'Olá! Para consultar as opções, preciso confirmar: ' + item.pendencias.join('; ') + '. Você pode me informar?';\n  } else if (tipo === 'opcoes') {\n    if (!item.opcoes?.length) throw new Error('Não há opção para compor esta resposta.');\n    status = 'opcao_encontrada';\n    const lista = item.opcoes.map(o=>`${o.id}: ${o.origem} → ${o.destino}, de ${dataBR(o.data_ida)} a ${dataBR(o.data_volta)}, ${o.adultos} adultos, valor total fictício ${moedaBR(o.valor_total)}.`).join('\\n');\n    rascunho = 'Olá! No catálogo de demonstração, encontrei:\\n' + lista + '\\n\\nEstes dados são fictícios para a atividade. Esta resposta não confirma disponibilidade real nem reserva.';\n  } else if (tipo === 'sem_opcoes') {\n    status = 'sem_opcao_compativel';\n    rascunho = 'Olá! Não encontrei opção que atenda a todas as condições no catálogo de demonstração. Deixei o pedido sinalizado para revisão de um atendente. Você aceita rever datas, destino ou orçamento?';\n  } else throw new Error('Tipo de resposta desconhecido.');\n  return {...item,status,rascunho,envio_automatico:false,revisao_necessaria:true};\n}\nfunction escapar(v) { return String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c])); }\nfunction apresentar(item, execucao) {\n  const titulos={opcao_encontrada:'Opção encontrada',precisa_complemento:'Precisamos completar o pedido',sem_opcao_compativel:'Pedido para revisão da equipe'};\n  const d=item.dados; const e=escapar;\n  const linhas=[['Origem',d.origem],['Destino',d.destino],['Ida',dataBR(d.data_ida)],['Volta',dataBR(d.data_volta)],['Adultos',d.adultos],['Orçamento informado',d.orcamento_valor==null?'não informado':moedaBR(d.orcamento_valor)+' ('+d.orcamento_tipo+')'],['Orçamento total validado',item.orcamento_total==null?'aguardando dados':moedaBR(item.orcamento_total)]];\n  const tabela=linhas.map(([k,v])=>`<tr><th>${e(k)}</th><td>${e(v??'não informado')}</td></tr>`).join('');\n  const comparacao=(item.comparacao??[]).map(o=>`<tr><td>${e(o.id)}</td><td>${e(moedaBR(o.valor_total))}</td><td>${e(o.compativel?'Compatível':o.motivos.join('; '))}</td></tr>`).join('');\n  const html=`<!doctype html><html lang=\"pt-BR\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>FIAT — ${e(titulos[item.status])}</title><style>body{font:17px/1.5 system-ui,sans-serif;background:#f3f6fa;color:#162c43;margin:0;padding:28px}main{max-width:920px;margin:auto}h1{font-size:32px;line-height:1.2}h2{font-size:22px}section{background:white;border:1px solid #d7e1eb;border-radius:14px;padding:24px;margin:18px 0}.tag{color:#146b5f;font-weight:700}table{border-collapse:collapse;width:100%;font-size:16px}td,th{text-align:left;border-bottom:1px solid #e4e9ef;padding:10px}pre{white-space:pre-wrap;font:17px/1.6 system-ui}small{color:#526476}.notice{border-left:5px solid #cf8b22;padding:12px 16px;background:#fff7e5}</style></head><body><main><span class=\"tag\">FIAT · DEMONSTRAÇÃO DE AUTOMAÇÃO</span><h1>${e(titulos[item.status])}</h1><p class=\"notice\">Catálogo e pedidos fictícios. Rascunho para revisão; nenhuma mensagem foi enviada.</p><section><h2>O pedido virou dados</h2><p><small>Origem dos campos: ${e(item.modo)}</small></p><table>${tabela}</table></section>${comparacao?`<section><h2>O que a consulta encontrou</h2><table><tr><th>Opção fictícia</th><th>Total</th><th>Resultado da regra</th></tr>${comparacao}</table></section>`:''}<section><h2>Resposta preparada</h2><pre>${e(item.rascunho)}</pre></section><p><small>Execução ${e(execucao??'local')}. O histórico do n8n guarda os dados desta demonstração; ele não substitui um cadastro de clientes.</small></p></main></body></html>`;\n  return {...item,execucao_id:String(execucao??'local'),html};\n}\n\nreturn $input.all().map((x,i)=>({json:preparar(x.json,'sem_opcoes'),pairedItem:{item:i}}));",
+        "mode": "runOnceForAllItems"
+      },
+      "position": [
+        1640,
+        220
+      ],
+      "typeVersion": 2
+    },
+    {
+      "id": "2f7dc6ce6048b934a0e5450f6c91f8ec",
+      "name": "Pedir informação faltante",
+      "type": "n8n-nodes-base.code",
+      "parameters": {
+        "jsCode": "// Lógica compartilhada pelos workflows. Sem serviços externos ou segredos.\nfunction texto(v) { return typeof v === 'string' ? v.trim() : ''; }\nfunction chave(v) { return texto(v).normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/\\s+/g, ' '); }\nfunction cidade(v) { const x = chave(v); return ({sp:'sao paulo','são paulo':'sao paulo'})[x] || x; }\nfunction numero(v) {\n  if (typeof v === 'number') return Number.isFinite(v) ? v : null;\n  if (typeof v !== 'string' || !v.trim()) return null;\n  const s = v.trim();\n  // Formulários e schema usam número; não adivinhar separadores monetários.\n  if (!/^-?\\d+(?:\\.\\d+)?$/.test(s)) return null;\n  const n = Number(s); return Number.isFinite(n) ? n : null;\n}\nfunction dataISO(v) {\n  const s = texto(v); const br = s.match(/^(\\d{2})\\/(\\d{2})\\/(\\d{4})$/);\n  const iso = br ? `${br[3]}-${br[2]}-${br[1]}` : s;\n  const m = iso.match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);\n  if (!m || Number(m[1]) < 2000 || Number(m[1]) > 2100) return null;\n  const d = new Date(`${iso}T12:00:00Z`);\n  return Number.isFinite(d.getTime()) && d.toISOString().slice(0,10) === iso ? iso : null;\n}\nfunction validar(entrada) {\n  const x = entrada.dados ?? entrada; const pendencias = [];\n  const dados = {\n    origem: texto(x.origem) || null, destino: texto(x.destino) || null,\n    data_ida: dataISO(x.data_ida), data_volta: dataISO(x.data_volta),\n    adultos: numero(x.adultos), criancas: x.criancas == null || x.criancas === '' ? 0 : numero(x.criancas),\n    orcamento_valor: numero(x.orcamento_valor), orcamento_tipo: texto(x.orcamento_tipo),\n    moeda: texto(x.moeda).toUpperCase(), ambiguidades: Array.isArray(x.ambiguidades) ? x.ambiguidades.filter(v=>typeof v==='string'&&v.trim()) : []\n  };\n  if (!dados.origem) pendencias.push('cidade de origem');\n  if (!dados.destino) pendencias.push('destino');\n  if (!dados.data_ida) pendencias.push('data de ida válida, com ano');\n  if (!dados.data_volta) pendencias.push('data de volta válida, com ano');\n  if (dados.data_ida && dados.data_volta && dados.data_volta <= dados.data_ida) pendencias.push('data de volta posterior à ida');\n  if (!Number.isInteger(dados.adultos) || dados.adultos < 1 || dados.adultos > 20) pendencias.push('quantidade de adultos entre 1 e 20');\n  if (!Number.isInteger(dados.criancas) || dados.criancas < 0 || dados.criancas > 20) pendencias.push('quantidade de crianças válida');\n  if (dados.criancas > 0) pendencias.push('avaliação de um atendente para viagens com crianças, fora deste catálogo de demonstração');\n  if (!(dados.orcamento_valor > 0)) pendencias.push('orçamento positivo em número');\n  if (!['total','por_pessoa'].includes(dados.orcamento_tipo)) pendencias.push('se o orçamento é total ou por pessoa');\n  if (dados.moeda !== 'BRL') pendencias.push('orçamento em reais (BRL), moeda deste catálogo');\n  if (dados.ambiguidades.length) pendencias.push(...dados.ambiguidades.map(a=>'esclarecimento: '+a));\n  const completo = pendencias.length === 0;\n  const orcamento_total = completo ? dados.orcamento_valor * (dados.orcamento_tipo === 'por_pessoa' ? dados.adultos : 1) : null;\n  return {mensagem_original: texto(entrada.mensagem_original),modo:entrada.modo||'campos informados',dados,pendencias:[...new Set(pendencias)],completo,orcamento_total};\n}\nfunction buscarOpcoes(item, catalogo) {\n  if (!item.completo) throw new Error('A consulta exige dados completos e válidos.');\n  if (!Array.isArray(catalogo)) throw new Error('Catálogo inválido: esperado um array.');\n  const comparacao = catalogo.map(o => {\n    const motivos = [];\n    if (cidade(o.origem) !== cidade(item.dados.origem)) motivos.push('origem diferente');\n    if (cidade(o.destino) !== cidade(item.dados.destino)) motivos.push('destino diferente');\n    if (o.data_ida !== item.dados.data_ida || o.data_volta !== item.dados.data_volta) motivos.push('datas diferentes');\n    if (o.adultos !== item.dados.adultos || (o.criancas || 0) !== item.dados.criancas) motivos.push('viajantes diferentes');\n    if (o.moeda !== 'BRL') motivos.push('moeda diferente');\n    if (!Number.isFinite(o.valor_total) || o.valor_total <= 0) motivos.push('valor inválido no catálogo');\n    else if (o.valor_total > item.orcamento_total) motivos.push('acima do orçamento');\n    return {...o,compativel:motivos.length===0,motivos};\n  });\n  return {...item,comparacao,opcoes:comparacao.filter(o=>o.compativel),catalogo_ficticio:true};\n}\nfunction moedaBR(v) { return Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }\nfunction dataBR(v) { return v ? v.split('-').reverse().join('/') : 'não informada'; }\nfunction preparar(item, tipo) {\n  let status, rascunho;\n  if (tipo === 'complemento') {\n    status = 'precisa_complemento';\n    rascunho = 'Olá! Para consultar as opções, preciso confirmar: ' + item.pendencias.join('; ') + '. Você pode me informar?';\n  } else if (tipo === 'opcoes') {\n    if (!item.opcoes?.length) throw new Error('Não há opção para compor esta resposta.');\n    status = 'opcao_encontrada';\n    const lista = item.opcoes.map(o=>`${o.id}: ${o.origem} → ${o.destino}, de ${dataBR(o.data_ida)} a ${dataBR(o.data_volta)}, ${o.adultos} adultos, valor total fictício ${moedaBR(o.valor_total)}.`).join('\\n');\n    rascunho = 'Olá! No catálogo de demonstração, encontrei:\\n' + lista + '\\n\\nEstes dados são fictícios para a atividade. Esta resposta não confirma disponibilidade real nem reserva.';\n  } else if (tipo === 'sem_opcoes') {\n    status = 'sem_opcao_compativel';\n    rascunho = 'Olá! Não encontrei opção que atenda a todas as condições no catálogo de demonstração. Deixei o pedido sinalizado para revisão de um atendente. Você aceita rever datas, destino ou orçamento?';\n  } else throw new Error('Tipo de resposta desconhecido.');\n  return {...item,status,rascunho,envio_automatico:false,revisao_necessaria:true};\n}\nfunction escapar(v) { return String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c])); }\nfunction apresentar(item, execucao) {\n  const titulos={opcao_encontrada:'Opção encontrada',precisa_complemento:'Precisamos completar o pedido',sem_opcao_compativel:'Pedido para revisão da equipe'};\n  const d=item.dados; const e=escapar;\n  const linhas=[['Origem',d.origem],['Destino',d.destino],['Ida',dataBR(d.data_ida)],['Volta',dataBR(d.data_volta)],['Adultos',d.adultos],['Orçamento informado',d.orcamento_valor==null?'não informado':moedaBR(d.orcamento_valor)+' ('+d.orcamento_tipo+')'],['Orçamento total validado',item.orcamento_total==null?'aguardando dados':moedaBR(item.orcamento_total)]];\n  const tabela=linhas.map(([k,v])=>`<tr><th>${e(k)}</th><td>${e(v??'não informado')}</td></tr>`).join('');\n  const comparacao=(item.comparacao??[]).map(o=>`<tr><td>${e(o.id)}</td><td>${e(moedaBR(o.valor_total))}</td><td>${e(o.compativel?'Compatível':o.motivos.join('; '))}</td></tr>`).join('');\n  const html=`<!doctype html><html lang=\"pt-BR\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>FIAT — ${e(titulos[item.status])}</title><style>body{font:17px/1.5 system-ui,sans-serif;background:#f3f6fa;color:#162c43;margin:0;padding:28px}main{max-width:920px;margin:auto}h1{font-size:32px;line-height:1.2}h2{font-size:22px}section{background:white;border:1px solid #d7e1eb;border-radius:14px;padding:24px;margin:18px 0}.tag{color:#146b5f;font-weight:700}table{border-collapse:collapse;width:100%;font-size:16px}td,th{text-align:left;border-bottom:1px solid #e4e9ef;padding:10px}pre{white-space:pre-wrap;font:17px/1.6 system-ui}small{color:#526476}.notice{border-left:5px solid #cf8b22;padding:12px 16px;background:#fff7e5}</style></head><body><main><span class=\"tag\">FIAT · DEMONSTRAÇÃO DE AUTOMAÇÃO</span><h1>${e(titulos[item.status])}</h1><p class=\"notice\">Catálogo e pedidos fictícios. Rascunho para revisão; nenhuma mensagem foi enviada.</p><section><h2>O pedido virou dados</h2><p><small>Origem dos campos: ${e(item.modo)}</small></p><table>${tabela}</table></section>${comparacao?`<section><h2>O que a consulta encontrou</h2><table><tr><th>Opção fictícia</th><th>Total</th><th>Resultado da regra</th></tr>${comparacao}</table></section>`:''}<section><h2>Resposta preparada</h2><pre>${e(item.rascunho)}</pre></section><p><small>Execução ${e(execucao??'local')}. O histórico do n8n guarda os dados desta demonstração; ele não substitui um cadastro de clientes.</small></p></main></body></html>`;\n  return {...item,execucao_id:String(execucao??'local'),html};\n}\n\nreturn $input.all().map((x,i)=>({json:preparar(x.json,'complemento'),pairedItem:{item:i}}));",
+        "mode": "runOnceForAllItems"
+      },
+      "position": [
+        920,
+        420
+      ],
+      "typeVersion": 2
+    },
+    {
+      "id": "a6d3c80132b9e21d21f4e6d8ca95c6b5",
+      "name": "Exibir resultado e rascunho",
+      "type": "n8n-nodes-base.code",
+      "parameters": {
+        "jsCode": "// Lógica compartilhada pelos workflows. Sem serviços externos ou segredos.\nfunction texto(v) { return typeof v === 'string' ? v.trim() : ''; }\nfunction chave(v) { return texto(v).normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/\\s+/g, ' '); }\nfunction cidade(v) { const x = chave(v); return ({sp:'sao paulo','são paulo':'sao paulo'})[x] || x; }\nfunction numero(v) {\n  if (typeof v === 'number') return Number.isFinite(v) ? v : null;\n  if (typeof v !== 'string' || !v.trim()) return null;\n  const s = v.trim();\n  // Formulários e schema usam número; não adivinhar separadores monetários.\n  if (!/^-?\\d+(?:\\.\\d+)?$/.test(s)) return null;\n  const n = Number(s); return Number.isFinite(n) ? n : null;\n}\nfunction dataISO(v) {\n  const s = texto(v); const br = s.match(/^(\\d{2})\\/(\\d{2})\\/(\\d{4})$/);\n  const iso = br ? `${br[3]}-${br[2]}-${br[1]}` : s;\n  const m = iso.match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);\n  if (!m || Number(m[1]) < 2000 || Number(m[1]) > 2100) return null;\n  const d = new Date(`${iso}T12:00:00Z`);\n  return Number.isFinite(d.getTime()) && d.toISOString().slice(0,10) === iso ? iso : null;\n}\nfunction validar(entrada) {\n  const x = entrada.dados ?? entrada; const pendencias = [];\n  const dados = {\n    origem: texto(x.origem) || null, destino: texto(x.destino) || null,\n    data_ida: dataISO(x.data_ida), data_volta: dataISO(x.data_volta),\n    adultos: numero(x.adultos), criancas: x.criancas == null || x.criancas === '' ? 0 : numero(x.criancas),\n    orcamento_valor: numero(x.orcamento_valor), orcamento_tipo: texto(x.orcamento_tipo),\n    moeda: texto(x.moeda).toUpperCase(), ambiguidades: Array.isArray(x.ambiguidades) ? x.ambiguidades.filter(v=>typeof v==='string'&&v.trim()) : []\n  };\n  if (!dados.origem) pendencias.push('cidade de origem');\n  if (!dados.destino) pendencias.push('destino');\n  if (!dados.data_ida) pendencias.push('data de ida válida, com ano');\n  if (!dados.data_volta) pendencias.push('data de volta válida, com ano');\n  if (dados.data_ida && dados.data_volta && dados.data_volta <= dados.data_ida) pendencias.push('data de volta posterior à ida');\n  if (!Number.isInteger(dados.adultos) || dados.adultos < 1 || dados.adultos > 20) pendencias.push('quantidade de adultos entre 1 e 20');\n  if (!Number.isInteger(dados.criancas) || dados.criancas < 0 || dados.criancas > 20) pendencias.push('quantidade de crianças válida');\n  if (dados.criancas > 0) pendencias.push('avaliação de um atendente para viagens com crianças, fora deste catálogo de demonstração');\n  if (!(dados.orcamento_valor > 0)) pendencias.push('orçamento positivo em número');\n  if (!['total','por_pessoa'].includes(dados.orcamento_tipo)) pendencias.push('se o orçamento é total ou por pessoa');\n  if (dados.moeda !== 'BRL') pendencias.push('orçamento em reais (BRL), moeda deste catálogo');\n  if (dados.ambiguidades.length) pendencias.push(...dados.ambiguidades.map(a=>'esclarecimento: '+a));\n  const completo = pendencias.length === 0;\n  const orcamento_total = completo ? dados.orcamento_valor * (dados.orcamento_tipo === 'por_pessoa' ? dados.adultos : 1) : null;\n  return {mensagem_original: texto(entrada.mensagem_original),modo:entrada.modo||'campos informados',dados,pendencias:[...new Set(pendencias)],completo,orcamento_total};\n}\nfunction buscarOpcoes(item, catalogo) {\n  if (!item.completo) throw new Error('A consulta exige dados completos e válidos.');\n  if (!Array.isArray(catalogo)) throw new Error('Catálogo inválido: esperado um array.');\n  const comparacao = catalogo.map(o => {\n    const motivos = [];\n    if (cidade(o.origem) !== cidade(item.dados.origem)) motivos.push('origem diferente');\n    if (cidade(o.destino) !== cidade(item.dados.destino)) motivos.push('destino diferente');\n    if (o.data_ida !== item.dados.data_ida || o.data_volta !== item.dados.data_volta) motivos.push('datas diferentes');\n    if (o.adultos !== item.dados.adultos || (o.criancas || 0) !== item.dados.criancas) motivos.push('viajantes diferentes');\n    if (o.moeda !== 'BRL') motivos.push('moeda diferente');\n    if (!Number.isFinite(o.valor_total) || o.valor_total <= 0) motivos.push('valor inválido no catálogo');\n    else if (o.valor_total > item.orcamento_total) motivos.push('acima do orçamento');\n    return {...o,compativel:motivos.length===0,motivos};\n  });\n  return {...item,comparacao,opcoes:comparacao.filter(o=>o.compativel),catalogo_ficticio:true};\n}\nfunction moedaBR(v) { return Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }\nfunction dataBR(v) { return v ? v.split('-').reverse().join('/') : 'não informada'; }\nfunction preparar(item, tipo) {\n  let status, rascunho;\n  if (tipo === 'complemento') {\n    status = 'precisa_complemento';\n    rascunho = 'Olá! Para consultar as opções, preciso confirmar: ' + item.pendencias.join('; ') + '. Você pode me informar?';\n  } else if (tipo === 'opcoes') {\n    if (!item.opcoes?.length) throw new Error('Não há opção para compor esta resposta.');\n    status = 'opcao_encontrada';\n    const lista = item.opcoes.map(o=>`${o.id}: ${o.origem} → ${o.destino}, de ${dataBR(o.data_ida)} a ${dataBR(o.data_volta)}, ${o.adultos} adultos, valor total fictício ${moedaBR(o.valor_total)}.`).join('\\n');\n    rascunho = 'Olá! No catálogo de demonstração, encontrei:\\n' + lista + '\\n\\nEstes dados são fictícios para a atividade. Esta resposta não confirma disponibilidade real nem reserva.';\n  } else if (tipo === 'sem_opcoes') {\n    status = 'sem_opcao_compativel';\n    rascunho = 'Olá! Não encontrei opção que atenda a todas as condições no catálogo de demonstração. Deixei o pedido sinalizado para revisão de um atendente. Você aceita rever datas, destino ou orçamento?';\n  } else throw new Error('Tipo de resposta desconhecido.');\n  return {...item,status,rascunho,envio_automatico:false,revisao_necessaria:true};\n}\nfunction escapar(v) { return String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c])); }\nfunction apresentar(item, execucao) {\n  const titulos={opcao_encontrada:'Opção encontrada',precisa_complemento:'Precisamos completar o pedido',sem_opcao_compativel:'Pedido para revisão da equipe'};\n  const d=item.dados; const e=escapar;\n  const linhas=[['Origem',d.origem],['Destino',d.destino],['Ida',dataBR(d.data_ida)],['Volta',dataBR(d.data_volta)],['Adultos',d.adultos],['Orçamento informado',d.orcamento_valor==null?'não informado':moedaBR(d.orcamento_valor)+' ('+d.orcamento_tipo+')'],['Orçamento total validado',item.orcamento_total==null?'aguardando dados':moedaBR(item.orcamento_total)]];\n  const tabela=linhas.map(([k,v])=>`<tr><th>${e(k)}</th><td>${e(v??'não informado')}</td></tr>`).join('');\n  const comparacao=(item.comparacao??[]).map(o=>`<tr><td>${e(o.id)}</td><td>${e(moedaBR(o.valor_total))}</td><td>${e(o.compativel?'Compatível':o.motivos.join('; '))}</td></tr>`).join('');\n  const html=`<!doctype html><html lang=\"pt-BR\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>FIAT — ${e(titulos[item.status])}</title><style>body{font:17px/1.5 system-ui,sans-serif;background:#f3f6fa;color:#162c43;margin:0;padding:28px}main{max-width:920px;margin:auto}h1{font-size:32px;line-height:1.2}h2{font-size:22px}section{background:white;border:1px solid #d7e1eb;border-radius:14px;padding:24px;margin:18px 0}.tag{color:#146b5f;font-weight:700}table{border-collapse:collapse;width:100%;font-size:16px}td,th{text-align:left;border-bottom:1px solid #e4e9ef;padding:10px}pre{white-space:pre-wrap;font:17px/1.6 system-ui}small{color:#526476}.notice{border-left:5px solid #cf8b22;padding:12px 16px;background:#fff7e5}</style></head><body><main><span class=\"tag\">FIAT · DEMONSTRAÇÃO DE AUTOMAÇÃO</span><h1>${e(titulos[item.status])}</h1><p class=\"notice\">Catálogo e pedidos fictícios. Rascunho para revisão; nenhuma mensagem foi enviada.</p><section><h2>O pedido virou dados</h2><p><small>Origem dos campos: ${e(item.modo)}</small></p><table>${tabela}</table></section>${comparacao?`<section><h2>O que a consulta encontrou</h2><table><tr><th>Opção fictícia</th><th>Total</th><th>Resultado da regra</th></tr>${comparacao}</table></section>`:''}<section><h2>Resposta preparada</h2><pre>${e(item.rascunho)}</pre></section><p><small>Execução ${e(execucao??'local')}. O histórico do n8n guarda os dados desta demonstração; ele não substitui um cadastro de clientes.</small></p></main></body></html>`;\n  return {...item,execucao_id:String(execucao??'local'),html};\n}\n\nreturn $input.all().map((x,i)=>({json:apresentar(x.json,$execution.id),pairedItem:{item:i}}));",
+        "mode": "runOnceForAllItems"
+      },
+      "position": [
+        1880,
+        240
+      ],
+      "typeVersion": 2
+    },
+    {
+      "id": "b1032bac6e86cc52aaa198e3fcd98569",
+      "name": "Resultado na página",
+      "type": "n8n-nodes-base.form",
+      "parameters": {
+        "operation": "completion",
+        "respondWith": "showText",
+        "responseText": "={{ $json.html }}",
+        "options": {}
+      },
+      "position": [
+        2120,
+        240
+      ],
+      "typeVersion": 2.4,
+      "webhookId": "3a249048760e9dab2f414f7a2d60700b"
+    },
+    {
+      "id": "587836179607f0ef718a558258fc2e4c",
+      "name": "Comece por aqui",
+      "type": "n8n-nodes-base.stickyNote",
+      "parameters": {
+        "content": "## Primeiro teste sem API\nSão Paulo → Buenos Aires · 15–19/11/2026 · 2 adultos · R$ 6000 total.\n\nTeste o formulário. Resultado esperado: apenas DEMO-01. Depois deixe as datas vazias.\n\nCatálogo fictício. Não envia mensagens.",
+        "height": 210,
+        "width": 480,
+        "color": 5
+      },
+      "position": [
+        0,
+        -220
+      ],
+      "typeVersion": 1
+    }
+  ],
+  "connections": {
+    "Receber dados": {
+      "main": [
+        [
+          {
+            "node": "Organizar campos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Organizar campos": {
+      "main": [
+        [
+          {
+            "node": "Conferir os dados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conferir os dados": {
+      "main": [
+        [
+          {
+            "node": "Dados suficientes?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dados suficientes?": {
+      "main": [
+        [
+          {
+            "node": "Catálogo fictício - 3 opções",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Pedir informação faltante",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Catálogo fictício - 3 opções": {
+      "main": [
+        [
+          {
+            "node": "Comparar as condições",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Comparar as condições": {
+      "main": [
+        [
+          {
+            "node": "Encontrou opção?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Encontrou opção?": {
+      "main": [
+        [
+          {
+            "node": "Preparar opção encontrada",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preparar encaminhamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar opção encontrada": {
+      "main": [
+        [
+          {
+            "node": "Exibir resultado e rascunho",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar encaminhamento": {
+      "main": [
+        [
+          {
+            "node": "Exibir resultado e rascunho",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pedir informação faltante": {
+      "main": [
+        [
+          {
+            "node": "Exibir resultado e rascunho",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Exibir resultado e rascunho": {
+      "main": [
+        [
+          {
+            "node": "Resultado na página",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "executionTimeout": 120
+  },
+  "active": false,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

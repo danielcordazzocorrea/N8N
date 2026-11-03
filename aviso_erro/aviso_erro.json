@@ -1,0 +1,59 @@
+{
+    "nodes":  [
+                  {
+                      "parameters":  {
+
+                                     },
+                      "type":  "n8n-nodes-base.errorTrigger",
+                      "typeVersion":  1,
+                      "position":  [
+                                       208,
+                                       0
+                                   ],
+                      "id":  "1d46209e-9034-452f-98f9-7a6d2f47406f",
+                      "name":  "Error Trigger",
+                      "alwaysOutputData":  true,
+                      "retryOnFail":  true,
+                      "waitBetweenTries":  5000,
+                      "notesInFlow":  false
+                  },
+                  {
+                      "parameters":  {
+                                         "sendTo":  "",
+                                         "subject":  "Falha em workflow n8n",
+                                         "emailType":  "text",
+                                         "message":  "=Falha detectada em {{ new Date($now).toLocaleString(\"pt-BR\", { timeZone: \"America/Sao_Paulo\" }) }}.\r\n\r\nWorkflow: {{ $json.workflow?.name ?? \"não informado\" }}\r\nNó: {{ $json.execution?.lastNodeExecuted ?? \"não informado\" }}\r\nExecução: {{ $json.execution?.id ?? \"não disponível\" }}\r\n\r\nConsulte o histórico de execuções do n8n para ver os detalhes. O texto bruto do erro não é enviado por e-mail.",
+                                         "options":  {
+
+                                                     }
+                                     },
+                      "type":  "n8n-nodes-base.gmail",
+                      "typeVersion":  2.1,
+                      "position":  [
+                                       496,
+                                       0
+                                   ],
+                      "id":  "9cae8947-6523-416d-9851-fb629011da71",
+                      "name":  "Send a message"
+                  }
+              ],
+    "connections":  {
+                        "Error Trigger":  {
+                                              "main":  [
+                                                           [
+                                                               {
+                                                                   "node":  "Send a message",
+                                                                   "type":  "main",
+                                                                   "index":  0
+                                                               }
+                                                           ]
+                                                       ]
+                                          }
+                    },
+    "pinData":  {
+
+                },
+    "meta":  {
+                 "templateCredsSetupCompleted":  false
+             }
+}
